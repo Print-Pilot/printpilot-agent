@@ -1,0 +1,33 @@
+# printpilot-agent configuration example
+# Copy this file to agent-config.yaml and fill in your values.
+# The real agent-config.yaml must never be committed (see .gitignore).
+
+# URL del hub (WebSocket seguro saliente). Ejemplos:
+#   wss://hub.tudominio.com/ws
+#   ws://localhost:8080/ws   (desarrollo local)
+hub_url: wss://hub.example.com/ws
+
+# Token único de autenticación por impresora.
+# Se envía al hub durante el handshake. NO lo dejes vacío en producción.
+token: ""
+
+# URL del websocket de Moonraker, que corre en la misma máquina.
+moonraker_url: ws://localhost:7125/websocket
+
+# Identificador único de la impresora (ej. "prusa-mk3s-sala", "ender3-taller").
+printer_id: ""
+
+# Intervalo de envío de heartbeats al hub, en segundos (default 30).
+heartbeat_interval_seconds: 30
+
+# Archivo de log (opcional). Si se setea, se escribe a archivo con rotación
+# además de consola. Vacío = solo consola.
+log_file: "/tmp/printpilot-agent.log"
+
+# Nivel de log: debug | info | warn | error (default info).
+log_level: "info"
+
+# Puerto del proxy local compatible con Spoolman (default 8001). Moonraker
+# debe apuntar su config [spoolman] server: a http://localhost:{puerto} para
+# que el agente reciba y reenvíe el consumo de filamento al hub. 0 = deshabilitado.
+spoolman_proxy_port: 8001
