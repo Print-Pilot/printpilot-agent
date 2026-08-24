@@ -9,6 +9,9 @@
 #   command: install (default) | update | delete | check
 #   version: vX.Y.Z | latest (default)
 #
+# Después de instalar queda el CLI 'printpilot' en PATH:
+#   printpilot status | doctor | printer new | config | log | update | uninstall
+#
 # Sin argumentos y en una terminal interactiva, muestra un MENÚ con flechas
 # (↑/↓ + Enter) y colores para elegir la acción.
 #
@@ -446,6 +449,12 @@ cmd_install() { # cmd_install <version>
   chown -R "$RUN_USER":"$RUN_USER" "$INSTALL_DIR" "$LOG_DIR"
   ok "Binario instalado: $BINARY ($version)"
 
+  # CLI 'printpilot' en PATH: el mismo binario, invocado vía symlink, actúa
+  # como CLI de gestión (status / printer / config / doctor / update / uninstall).
+  mkdir -p /usr/local/bin
+  ln -sf "$BINARY" /usr/local/bin/printpilot
+  ok "CLI instalado: printpilot (status, printer, config, doctor, update, uninstall)"
+
   # Config.
   write_config
 
@@ -463,8 +472,12 @@ cmd_install() { # cmd_install <version>
   echo "  - Config:    $CONFIG_DIR/config.yaml"
   echo "  - Logs:      journalctl -u $SERVICE -f"
   echo "  - Estado:    systemctl status $SERVICE"
+  echo "  - CLI:       printpilot status | printer new | doctor | config | log | update | uninstall"
   if [ -z "$(sed -n 's/^token: *"\([^"]*\)"/\1/p' "$CONFIG_DIR/config.yaml" 2>/dev/null)" ]; then
     warn "Recordá completar 'token' en $CONFIG_DIR/config.yaml si el hub exige autenticación."
+  fi
+  if [ -z "$(sed -n 's/^printer_id: *"\([^"]*\)"/\1/p' "$CONFIG_DIR/config.yaml" 2>/dev/null)" ]; then
+    warn "No hay printer_id seteado: corré 'sudo printpilot printer new' y pegá el id en el panel."
   fi
 }
 
@@ -512,6 +525,9 @@ cmd_delete() {
   systemctl disable "$SERVICE" 2>/dev/null || true
   rm -f "$SERVICE_UNIT"
   systemctl daemon-reload
+
+  # Symlink del CLI.
+  rm -f /usr/local/bin/printpilot
 
   # Respaldo de la config (nunca borrar el token/URLs sin copia).
   if [ -f "$CONFIG_DIR/config.yaml" ]; then

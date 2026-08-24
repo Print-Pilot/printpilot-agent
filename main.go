@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,6 +17,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/Print-Pilot/printpilot-agent/internal/bridge"
+	"github.com/Print-Pilot/printpilot-agent/internal/cli"
 	"github.com/Print-Pilot/printpilot-agent/internal/config"
 	"github.com/Print-Pilot/printpilot-agent/internal/moonraker"
 	"github.com/Print-Pilot/printpilot-agent/internal/spoolmanproxy"
@@ -28,6 +29,14 @@ import (
 var version = "dev"
 
 func main() {
+	// Modo CLI: el mismo binario es un multi-llamada. Si se invoca como
+	// `printpilot` (symlink que crea el instalador) o el primer argumento es
+	// un subcomando conocido, actuamos como CLI de gestión. Si no, como daemon.
+	if isCLIInvocation() {
+		cli.Version = version
+		os.Exit(cli.Run(os.Args[1:]))
+	}
+
 	configPath := flag.String("config", "agent-config.yaml", "ruta del archivo de configuración")
 	flag.Parse()
 
@@ -82,7 +91,7 @@ func main() {
 			log,
 			cfg.PrinterID,
 			fmt.Sprintf(":%d", cfg.SpoolmanProxyPort),
-			moonrakerHTTPBase(cfg.MoonrakerURL),
+			cli.MoonrakerHTTPBase(cfg.MoonrakerURL),
 			tun,
 		)
 		// SetActiveSpool del hub → Moonraker.
@@ -152,22 +161,15 @@ func main() {
 	log.Info("adiós")
 }
 
-// moonrakerHTTPBase deriva la base HTTP de Moonraker a partir de la URL del
-// websocket (ws://host:7125/websocket → http://host:7125). Se usa para
-// comunicar el cambio de spool activo vía server.spoolman.spool_id.
-func moonrakerHTTPBase(wsURL string) string {
-	u, err := url.Parse(wsURL)
-	if err != nil {
-		return strings.TrimSuffix(wsURL, "/websocket")
+// isCLIInvocation decide entre modo CLI y modo daemon:
+//   - invocado como `printpilot` (symlink creado por install.sh) → CLI
+//   - primer argumento es un subcomando conocido → CLI
+//   - cualquier otra cosa (p. ej. `printpilot-agent -config ...` de systemd) → daemon
+func isCLIInvocation() bool {
+	if strings.EqualFold(filepath.Base(os.Args[0]), "printpilot") {
+		return true
 	}
-	scheme := u.Scheme
-	switch scheme {
-	case "wss":
-		scheme = "https"
-	case "ws":
-		scheme = "http"
-	}
-	return scheme + "://" + u.Host
+	return len(os.Args) > 1 && cli.IsSubcommand(os.Args[1])
 }
 
 // newLogger construye el logger: a stdout siempre, y a un archivo rotable

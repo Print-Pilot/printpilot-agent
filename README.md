@@ -124,6 +124,38 @@ sudo ./install.sh check
 
 ---
 
+## CLI: `printpilot`
+
+El instalador deja un comando `printpilot` en PATH (un symlink al binario del
+agente, que también funciona como CLI). Con él podés gestionar el agente en la
+máquina de la impresora **sin volver a bajar el instalador**:
+
+```sh
+printpilot status                 # estado del servicio, config y conectividad
+printpilot doctor                 # chequeo de dependencias del sistema
+printpilot printer new            # genera un printer_id y lo deja en la config
+printpilot printer new "taller"   # id basado en un nombre (taller-abc123)
+printpilot printer show           # muestra el printer_id actual
+printpilot printer set <id>       # fija un printer_id explícito
+printpilot config get             # muestra la config (token enmascarado)
+printpilot config set moonraker_url ws://localhost:7125/websocket
+printpilot log                    # últimas líneas del log
+printpilot log -f                 # sigue el log en vivo
+printpilot update                 # actualiza el binario a la última versión
+printpilot uninstall              # desinstala (respaldando la config)
+printpilot version
+```
+
+> **`printpilot printer new`** es el camino corto para dar de alta una
+> impresora: genera un `printer_id` legible (`<nombre>-<6hex`), lo persiste en
+> la config y reinicia el servicio. El id que imprime se pega en el panel
+> (Printers) para asociar la impresora a este agente.
+
+Los comandos que modifican el sistema (`printer`, `config set`, `update`,
+`uninstall`) se re-ejecutan solos con `sudo` si hace falta.
+
+---
+
 ## Configuración
 
 El archivo de config vive en `/etc/printpilot-agent/config.yaml` (o donde indiques con `--config`).

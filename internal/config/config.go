@@ -61,3 +61,17 @@ func LoadConfig(path string) (*Config, error) {
 
 	return cfg, nil
 }
+
+// Save persiste la config en path (permisos 0600: contiene el token). Se usa
+// desde el CLI (printpilot config set / printer new).
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("serializar config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("escribir config: %w", err)
+	}
+
+	return nil
+}
