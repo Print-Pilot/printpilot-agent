@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -116,7 +117,14 @@ func cameraSetup(configPath string, streamOverride string) int {
 	}
 	fmt.Println("go2rtc instalado.")
 
-	// 3) Config + servicio.
+	// 3) ffmpeg: necesario para servir MJPG (ustreamer) por WebRTC. Sin él el
+	// WHEP de go2rtc falla con HTTP 500 EOF al crear el peer.
+	if err := ensureFFmpeg(); err != nil {
+		fmt.Fprintf(os.Stderr, "Aviso: %v\n", err)
+		fmt.Fprintln(os.Stderr, "El WHEP puede fallar si la cámara es MJPG y no hay ffmpeg.")
+	}
+
+	// 4) Config + servicio.
 	if err := writeGo2rtcConfig(stream); err != nil {
 		fmt.Fprintf(os.Stderr, "No se pudo escribir %s: %v\n", go2rtcConfig, err)
 		return 1
@@ -266,6 +274,31 @@ func go2rtcArch() string {
 	default:
 		return runtime.GOARCH
 	}
+}
+
+// ensureFFmpeg verifica que ffmpeg exista y, si no, lo instala con apt-get.
+// go2rtc lo necesita para transcodecar MJPG (ustreamer) a H264/VP8 para WebRTC.
+func ensureFFmpeg() error {
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		return fmt.Errorf("ffmpeg no está instalado y no hay apt-get para instalarlo")
+	}
+
+	fmt.Println("ffmpeg no está instalado (necesario para MJPG → WebRTC). Instalando...")
+	update := exec.Command("apt-get", "update", "-qq")
+	update.Stdout, update.Stderr = os.Stdout, os.Stderr
+	_ = update.Run()
+
+	install := exec.Command("apt-get", "install", "-y", "-qq", "ffmpeg")
+	install.Stdout, install.Stderr = os.Stdout, os.Stderr
+	if err := install.Run(); err != nil {
+		return fmt.Errorf("no se pudo instalar ffmpeg con apt-get: %w", err)
+	}
+
+	fmt.Println("ffmpeg instalado.")
+	return nil
 }
 
 func writeGo2rtcConfig(stream string) error {
