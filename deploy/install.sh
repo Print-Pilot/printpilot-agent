@@ -136,13 +136,16 @@ unit_exists() { # unit_exists <nombre>  (acepta "klipper" o "klipper.service")
   if [ -z "$_unit_files_loaded" ]; then
     _unit_files_loaded=1
     if command -v timeout >/dev/null 2>&1; then
-      _unit_files="$(timeout 5 systemctl list-unit-files 2>/dev/null || true)"
+      _unit_files="$(timeout 5 systemctl --no-pager list-unit-files 2>/dev/null || true)"
     else
-      _unit_files="$(systemctl list-unit-files 2>/dev/null || true)"
+      _unit_files="$(systemctl --no-pager list-unit-files 2>/dev/null || true)"
     fi
   fi
   printf '%s\n' "$_unit_files" | awk '{print $1}' | grep -qx "$1" \
-    || printf '%s\n' "$_unit_files" | awk '{print $1}' | grep -qx "$1.service"
+    || printf '%s\n' "$_unit_files" | awk '{print $1}' | grep -qx "$1.service" \
+    || [ -f "/etc/systemd/system/$1.service" ] \
+    || [ -f "/usr/lib/systemd/system/$1.service" ] \
+    || [ -f "/lib/systemd/system/$1.service" ]
 }
 
 # --- Detección de arquitectura ----------------------------------------------
@@ -193,7 +196,18 @@ run_dep_checks() {
   # --- Crowsnest (opcional, cámara) ---
   check_start "Crowsnest"
   crowsnest="no"; cdet="no encontrado (opcional)"
-  if unit_exists crowsnest || have crowsnest; then crowsnest="si"; cdet="disponible"; fi
+  if unit_exists crowsnest; then
+    crowsnest="si"; cdet="servicio"
+  elif have crowsnest; then
+    crowsnest="si"; cdet="binario en PATH"
+  else
+    # Crowsnest se instala en el home del usuario (no está en PATH): buscarlo
+    # por las rutas típicas (binario y config), igual que Klipper.
+    for p in /home/*/crowsnest/crowsnest /home/*/crowsnest/crowsnest.conf \
+             /home/*/printer_data/config/crowsnest.conf /usr/local/bin/crowsnest; do
+      if [ -e "$p" ]; then crowsnest="si"; cdet="en $p"; break; fi
+    done
+  fi
   if [ "$crowsnest" = "si" ]; then check_ok "$cdet"; else check_skip "$cdet"; fi
 
   # --- go2rtc (opcional, cámara) ---
