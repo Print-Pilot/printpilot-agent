@@ -85,6 +85,15 @@ func TestParseSlogLine(t *testing.T) {
 	if msg != "reintentando" {
 		t.Errorf("msg unquoted = %q", msg)
 	}
+
+	// Valor con comillas escapadas (errores de websocket dial).
+	line = `time=... level=WARN msg="no se pudo conectar" error="failed to send handshake request: Get \"http://h:8081/x\": dial tcp: connection refused"`
+	if _, _, msg = parseSlogLine(line); msg != "no se pudo conectar" {
+		t.Errorf("msg con error escapado = %q", msg)
+	}
+	if got := slogAttr(line, "error"); got != `failed to send handshake request: Get "http://h:8081/x": dial tcp: connection refused` {
+		t.Errorf("slogAttr escaped = %q", got)
+	}
 }
 
 func TestHubState(t *testing.T) {

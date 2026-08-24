@@ -160,7 +160,8 @@ func parseSlogLine(line string) (ts, level, msg string) {
 }
 
 // slogAttr extrae el valor de un atributo del formato slog de texto,
-// respetando valores entre comillas con espacios.
+// respetando valores entre comillas con espacios y comillas escapadas (\") —
+// el error del websocket dial trae comillas internas (Get "http://...").
 func slogAttr(line, key string) string {
 	prefix := key + "="
 	i := strings.Index(line, prefix)
@@ -168,17 +169,29 @@ func slogAttr(line, key string) string {
 		return ""
 	}
 	rest := line[i+len(prefix):]
-	if strings.HasPrefix(rest, `"`) {
-		end := strings.IndexByte(rest[1:], '"')
-		if end < 0 {
-			return rest[1:]
+	if !strings.HasPrefix(rest, `"`) {
+		if j := strings.IndexAny(rest, " \t"); j >= 0 {
+			return rest[:j]
 		}
-		return rest[1 : 1+end]
+		return rest
 	}
-	if j := strings.IndexAny(rest, " \t"); j >= 0 {
-		return rest[:j]
+
+	// Valor entre comillas, con \" escapadas.
+	rest = rest[1:]
+	var b strings.Builder
+	for j := 0; j < len(rest); j++ {
+		c := rest[j]
+		if c == '\\' && j+1 < len(rest) {
+			b.WriteByte(rest[j+1])
+			j++
+			continue
+		}
+		if c == '"' {
+			break
+		}
+		b.WriteByte(c)
 	}
-	return rest
+	return b.String()
 }
 
 type hubStatus struct {
