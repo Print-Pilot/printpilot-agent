@@ -54,6 +54,19 @@ func TestMaskToken(t *testing.T) {
 	}
 }
 
+func TestRandomToken(t *testing.T) {
+	tok := randomToken(40)
+	if len(tok) != 40 {
+		t.Errorf("longitud = %d, want 40", len(tok))
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9]{40}$`).MatchString(tok) {
+		t.Errorf("token no alfanumérico: %q", tok)
+	}
+	if tok == randomToken(40) {
+		t.Error("dos tokens iguales (poco probable)")
+	}
+}
+
 func TestParseSlogLine(t *testing.T) {
 	line := `time=2026-08-24T12:34:56-03:00 level=INFO msg="conectado al hub" url=wss://hub.example.com/ws`
 	ts, level, msg := parseSlogLine(line)

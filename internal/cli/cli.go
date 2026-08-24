@@ -262,6 +262,21 @@ func randomSuffix(nBytes int) string {
 	return hex.EncodeToString(b)
 }
 
+const tokenCharset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// randomToken genera un token alfanumérico de n caracteres (mismo formato que
+// el Str::random(40) del panel, para que ambos lados usen el mismo alfabeto).
+func randomToken(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return randomSuffix(n) // hex, también alfanumérico
+	}
+	for i := range b {
+		b[i] = tokenCharset[int(b[i])%len(tokenCharset)]
+	}
+	return string(b)
+}
+
 func slugify(s string) string {
 	var b strings.Builder
 	prevDash := false

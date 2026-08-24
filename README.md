@@ -147,10 +147,10 @@ printpilot version
 ```
 
 > **`printpilot printer new`** es el camino corto para dar de alta una
-> impresora: genera un `printer_id` legible (`<nombre>-<6hex`), lo persiste en
-> la config y reinicia el servicio. **El `printer_id` lo genera el agente**, no
-> el panel: el id que imprime se pega en el panel (Printers → Crear impresora)
-> para asociar la impresora a este agente.
+> impresora: genera un `printer_id` legible (`<nombre>-<6hex`) **y un token**, los
+> persiste en la config y reinicia el servicio. **El `printer_id` y el token los
+> genera el agente**, no el panel: los dos valores que imprime se pegan en el
+> panel (Printers → Crear impresora) para asociar la impresora a este agente.
 
 Los comandos se re-ejecutan solos con `sudo` si hace falta (la config y el log
 son de lectura restringida, del usuario `printpilot`): `status`, `printer`,

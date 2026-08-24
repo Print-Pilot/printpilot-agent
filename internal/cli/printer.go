@@ -10,8 +10,9 @@ import (
 
 // cmdPrinter gestiona el printer_id de ESTA máquina (una impresora por agente):
 //
-//	printpilot printer new [nombre]  genera un printer_id, lo persiste y reinicia
-//	printpilot printer show          muestra el printer_id actual
+//	printpilot printer new [nombre]  genera printer_id + token, los persiste y
+//	                                 reinicia (los dos se pegan en el panel)
+//	printpilot printer show          muestra printer_id y token actuales
 //	printpilot printer set <id>      fija un printer_id explícito
 func cmdPrinter(configPath string, args []string) int {
 	if !requireRoot() {
@@ -52,13 +53,13 @@ func printerUsage() {
 	fmt.Println(`printpilot printer
 
 Uso:
-  printpilot printer new [nombre]  crea una impresora y devuelve el printer_id
-                                   (persistido en la config + reinicia el servicio)
-  printpilot printer show          muestra el printer_id actual
+  printpilot printer new [nombre]  crea la impresora y devuelve el printer_id
+                                   y el token (persistidos en la config + reinicia)
+  printpilot printer show          muestra el printer_id y el token actuales
   printpilot printer set <id>      fija un printer_id explícito
 
-El printer_id que devuelve se pega en el panel (Printers) para asociar la
-impresora a este agente.`)
+El printer_id y el token que devuelve se pegan en el panel (Printers → Crear
+impresora) para asociar la impresora a este agente.`)
 }
 
 func printerNew(configPath string, name string) int {
@@ -77,8 +78,10 @@ func printerNew(configPath string, name string) int {
 		base, _ = os.Hostname()
 	}
 	id := newPrinterID(base)
+	token := randomToken(40)
 
 	cfg.PrinterID = id
+	cfg.Token = token
 	if err := cfg.Save(configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "No se pudo guardar la config: %v\n", err)
 		return 1
@@ -87,9 +90,10 @@ func printerNew(configPath string, name string) int {
 	fmt.Println()
 	fmt.Println("  Impresora creada:")
 	fmt.Printf("    printer_id:  %s\n", id)
+	fmt.Printf("    token:       %s\n", token)
 	fmt.Println()
-	fmt.Println("  Pegá este printer_id en el panel (Printers) para asociar la")
-	fmt.Println("  impresora a este agente.")
+	fmt.Println("  En el panel: Printers → Crear impresora, pegá estos dos valores")
+	fmt.Println("  (printer_id y token) y guardá.")
 	fmt.Println()
 
 	restartAfterChange()
@@ -98,6 +102,10 @@ func printerNew(configPath string, name string) int {
 }
 
 func printerShow(configPath string) int {
+	if !requireRoot() {
+		return 1
+	}
+
 	if !fileExists(configPath) {
 		fmt.Fprintln(os.Stderr, "No hay config. Corré el instalador o usa 'printpilot printer new'.")
 		return 1
@@ -108,9 +116,14 @@ func printerShow(configPath string) int {
 		return 1
 	}
 
-	fmt.Printf("printer_id actual: %s\n", cfg.PrinterID)
+	fmt.Printf("printer_id:  %s\n", cfg.PrinterID)
+	if cfg.Token == "" {
+		fmt.Println("token:       (vacío — usá 'printpilot printer new' para generar id y token)")
+	} else {
+		fmt.Printf("token:       %s\n", cfg.Token)
+	}
 	if cfg.PrinterID == "" {
-		fmt.Println("(vacío — usá 'printpilot printer new' para generar uno)")
+		fmt.Println("(printer_id vacío — usá 'printpilot printer new' para generar uno)")
 	}
 
 	return 0
