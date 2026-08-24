@@ -162,6 +162,10 @@ func (m *Manager) handleOffer(ctx context.Context, offer protocol.WebrtcOffer) {
 	}
 	m.sess[s.id] = s
 
+	// Diagnóstico: longitud del SDP que llega del navegador. Un 0 aquí
+	// confirma que el offer se perdió/truncó en la cadena panel→hub→agente.
+	m.log.Info("webrtc: offer recibido", "session_id", s.id, "camera", s.camera, "sdp_len", len(offer.SDP))
+
 	// Resolver el stream de go2rtc: si hay camera_stream configurado se usa para
 	// cualquier camera_id (single-camera MVP); si no, el camera_id del offer ES
 	// el nombre del stream.
