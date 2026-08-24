@@ -139,6 +139,9 @@ printpilot printer show           # muestra el printer_id actual
 printpilot printer set <id>       # fija un printer_id explícito
 printpilot config get             # muestra la config (token enmascarado)
 printpilot config set moonraker_url ws://localhost:7125/websocket
+printpilot camera setup           # instala go2rtc + detecta crowsnest + activa la cámara
+printpilot camera status          # estado de go2rtc y del stream
+printpilot camera disable         # quita la cámara del agente
 printpilot log                    # últimas líneas del log
 printpilot log -f                 # sigue el log en vivo
 printpilot update                 # actualiza el binario a la última versión
@@ -202,9 +205,28 @@ El agente envía su `token` en el `Handshake` al conectar. El hub lo valida cont
 
 Con `go2rtc` corriendo en la misma máquina, el agente actúa como **intermediario de señalización** entre el panel y go2rtc (endpoint **WHEP**). El video fluye **P2P directo entre tu navegador y la impresora** — ni el hub ni el panel lo tocan.
 
-- `camera_stream` define qué stream de go2rtc se sirve para la cámara "default" (vacío = usa el nombre `default`).
-- Configurá en `go2rtc.yaml`: las credenciales **STUN/TURN** (sección `webrtc:`) y la fuente de la cámara (`on_demand: true` para que go2rtc solo capture mientras haya un viewer).
-- El cierre de sesión lo gestiona go2rtc solo (WHEP es fire-and-forget): al cerrarse la conexión del navegador, libera el peer.
+### Instalación automática (recomendado)
+
+```sh
+sudo printpilot camera setup
+```
+
+Detecta la cámara en el `crowsnest.conf` (ustreamer / v4l2rtsp / camera-streamer),
+descarga go2rtc, arma el stream `default` en `/etc/go2rtc.yaml`, levanta el
+servicio `go2rtc` y activa `go2rtc_url` en el agente. Si no detecta la cámara:
+
+```sh
+sudo printpilot camera setup --stream=rtsp://127.0.0.1:8554/webcam
+```
+
+Verificación: `printpilot camera status` (debe listar `default: ready`). Luego en
+el panel → impresora → **Cámara**.
+
+> `camera_stream` define qué stream de go2rtc se sirve para la cámara "default"
+> (vacío = usa el nombre `default`). El panel manda `camera_id: "default"`.
+> Para internet (P2P fuera de la LAN) vas a necesitar un **TURN** propio:
+> seteá `WEBRTC_TURN_URL`/`WEBRTC_TURN_USERNAME`/`WEBRTC_TURN_CREDENTIAL` en el
+> panel. El cierre de sesión lo gestiona go2rtc solo (WHEP es fire-and-forget).
 
 ---
 

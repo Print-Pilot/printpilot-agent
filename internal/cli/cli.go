@@ -47,7 +47,7 @@ const (
 var subcommands = map[string]bool{
 	"status": true, "doctor": true, "printer": true, "config": true,
 	"log": true, "update": true, "uninstall": true, "version": true,
-	"help": true,
+	"camera": true, "help": true,
 }
 
 // IsSubcommand indica si el argumento es un subcomando del CLI. Se usa en main
@@ -101,6 +101,8 @@ func Run(args []string) int {
 		return cmdLog(configPath, rest[1:])
 	case "update":
 		return cmdUpdate()
+	case "camera":
+		return cmdCamera(configPath, rest[1:])
 	case "uninstall":
 		return cmdUninstall()
 	case "version":
@@ -129,6 +131,9 @@ Comandos:
   printer set <id>      fija un printer_id explícito
   config get [clave]    muestra la configuración (token enmascarado)
   config set <clave> <valor>  cambia un valor y reinicia el servicio
+  camera setup          instala go2rtc, detecta crowsnest y activa la cámara
+  camera status         estado de go2rtc y del stream
+  camera disable        quita la cámara del agente
   log [-f] [n]          muestra el log del agente (n líneas, -f para seguir)
   update                actualiza el binario a la última versión
   uninstall             desinstala el agente (respaldando la config)
