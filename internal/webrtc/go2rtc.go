@@ -48,6 +48,13 @@ func NewClient(base string) *Client {
 }
 
 func (c *Client) CreatePeer(ctx context.Context, camera, offerSDP string) (string, error) {
+	// pion/sdp (el parser que usa go2rtc en SetOffer) devuelve io.EOF si el
+	// SDP no termina en newline. El offer del navegador puede llegar sin el
+	// \n final: garantizarlo evita el HTTP 500 EOF de go2rtc.
+	if !strings.HasSuffix(offerSDP, "\n") {
+		offerSDP += "\n"
+	}
+
 	u := c.base + "/api/webrtc?src=" + url.QueryEscape(camera)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(offerSDP))
 	if err != nil {

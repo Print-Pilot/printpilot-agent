@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -32,11 +33,39 @@ func TestWhepCreatePeer(t *testing.T) {
 		t.Fatalf("CreatePeer: %v", err)
 	}
 
-	if gotMethod != http.MethodPost || gotQuery != "camara" || gotOffer != "v=0\r\noffer" {
+	if gotMethod != http.MethodPost || gotQuery != "camara" || gotOffer != "v=0\r\noffer\n" {
 		t.Fatalf("method=%q query=%q offer=%q", gotMethod, gotQuery, gotOffer)
 	}
 	if answer != "v=0\r\nanswer" {
 		t.Fatalf("answer inesperado: %q", answer)
+	}
+}
+
+// TestCreatePeerAppendsTrailingNewline: pion/sdp devuelve io.EOF si el SDP no
+// termina en newline; el cliente debe garantizarlo antes de enviarlo.
+func TestCreatePeerAppendsTrailingNewline(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 8192)
+		n, _ := r.Body.Read(buf)
+		gotBody = string(buf[:n])
+		w.Header().Set("Content-Type", "application/sdp")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte("v=0\nanswer"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	offer := "v=0\no=- 0 0 IN IP4 0.0.0.0\ns=-\nt=0 0" // sin \n final
+	if _, err := c.CreatePeer(context.Background(), "default", offer); err != nil {
+		t.Fatalf("CreatePeer: %v", err)
+	}
+
+	if !strings.HasSuffix(gotBody, "\n") {
+		t.Errorf("el body enviado a go2rtc no termina en newline: %q", gotBody)
+	}
+	if strings.Contains(gotBody, "\n\n") {
+		t.Errorf("newline duplicado en el body: %q", gotBody)
 	}
 }
 
