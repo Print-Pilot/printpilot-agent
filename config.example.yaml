@@ -31,3 +31,22 @@ log_level: "info"
 # debe apuntar su config [spoolman] server: a http://localhost:{puerto} para
 # que el agente reciba y reenvíe el consumo de filamento al hub. 0 = deshabilitado.
 spoolman_proxy_port: 8001
+
+# --- WebRTC (cámara en vivo) ---
+# URL base de go2rtc corriendo en la misma máquina (default de go2rtc: 1984).
+# El agente actúa de intermediario transparente de señalización (WHEP) entre
+# el hub y go2rtc; el video fluye P2P navegador <-> go2rtc. Vacío = streaming
+# deshabilitado. En go2rtc.yaml configurá la fuente de la cámara con
+# on_demand: true (go2rtc solo abre la cámara mientras haya un viewer).
+go2rtc_url: ""
+
+# Stream de go2rtc a servir cuando el panel pide camera_id "default" (MVP de
+# una sola cámara). Si lo dejás vacío, el camera_id del offer se usa como
+# nombre de stream (es decir, go2rtc debería tener un stream llamado "default").
+# Ej: camera_stream: "camara1"
+camera_stream: ""
+
+# Timeout de negociación WebRTC en segundos (default 15). Una sesión que no se
+# completa en este tiempo se considera muerta y se cierra. La limpieza del peer
+# en go2rtc la hace go2rtc solo (se cierra al cerrarse la conexión del navegador).
+webrtc_timeout_seconds: 15

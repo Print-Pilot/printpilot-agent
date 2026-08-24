@@ -1,106 +1,146 @@
 # printpilot-agent
 
-Proceso liviano en Go que corre **en la máquina conectada a la impresora** (netbook, Raspberry Pi, etc). Es el puente entre Moonraker (local) y el hub (nube), sin exponer ningún puerto entrante.
+**El puente entre tu impresora 3D (Klipper + Moonraker) y PrintPilot** — liviano, seguro y remoto, sin exponer ningún puerto.
+
+El agente corre **en la misma máquina que tu impresora** (Raspberry Pi, netbook, mini-PC…) y abre una única **conexión saliente** hacia el hub de PrintPilot. Desde ahí el ecosistema puede monitorear el estado de la impresora, controlar las impresiones y hasta ver la cámara en vivo — sin abrir puertos entrantes en tu red.
 
 ```
-[Tu impresora + Moonraker]
+[Tu impresora + Klipper + Moonraker]
         │
-        │  (conexión saliente WSS — sin puertos abiertos)
+        │  conexión saliente WSS (sin puertos abiertos)
         ▼
-[printpilot-agent]  →  corre junto a Moonraker, hace de puente
+[printpilot-agent]  →  corre junto a Moonraker
         │
         ▼
-[printpilot-hub]    →  servidor central, gestiona conexiones y ruteo
+[printpilot-hub]    →  servidor central
+        │
+        ▼
+[printpilot-panel]  →  dashboard web
 ```
 
-## Estado
+---
 
-🚧 Fase 4 (producción) — autenticación real contra el panel (token en el Handshake, rechazo con cierre 4001 y espera larga si el token es inválido), build de release multi-arquitectura con GitHub Actions, e instalación como servicio systemd. Ver [PLAN.md](PLAN.md).
+## Características
 
-## Decisiones de librerías
+- **Telemetría en vivo**: estado, progreso y temperaturas de la impresión → panel.
+- **Control remoto**: pausar, reanudar, cancelar y enviar g-code desde el panel.
+- **Gestión de archivos**: listar, ver, subir, borrar y organizar los `.gcode`.
+- **Cámara en vivo (WebRTC P2P)**: el video fluye **directo entre tu navegador y la impresora** (vía go2rtc), sin pasar por el hub ni el servidor.
+- **Filamento (Spoolman)**: reporta el consumo real de filamento para que el panel descuente el peso de tus spools.
+- **Auto-reconexión**: se recupera solo de caídas de red o reinicios de Moonraker.
+- **Instalador interactivo**: menú con flechas y colores (`install` / `update` / `delete` / `check`).
 
-| Librería | Decisión |
-|---|---|
-| WebSocket cliente | [`github.com/coder/websocket`](https://github.com/coder/websocket) (ex-nhooyr) |
-| Config | YAML con [`gopkg.in/yaml.v3`](https://github.com/go-yaml/yaml) |
-| Protocolo | [`github.com/Print-Pilot/printpilot-protocol`](https://github.com/Print-Pilot/printpilot-protocol) (vía `replace` local por ahora) |
-
-Se agregan como dependencias en Fase 1, cuando haya código que las importe.
+---
 
 ## Requisitos
 
-- Go 1.25+
-- Build cruzado para: `linux/amd64`, `linux/386`, `linux/arm` (GOARM=7), `linux/arm64`
+Para que el agente sea útil necesitás, **en la máquina de la impresora**:
 
-## Build y uso
+| Dependencia | Necesaria para |
+|---|---|
+| **Klipper** | El firmware de la impresora |
+| **Moonraker** | La API/websocket que el agente usa para hablar con Klipper (**obligatorio**) |
+| Linux + **systemd** | Correr el agente como servicio |
+| Crowsnest *(opcional)* | Captura de cámara |
+| go2rtc *(opcional)* | Streaming de cámara en vivo |
+| Go *(opcional)* | Solo si querés compilar desde fuente |
+
+> El agente es una sola **binario estático**: no necesita Go instalado en producción.
+
+---
+
+## Instalación
+
+### Rápido (desde GitHub Releases)
 
 ```sh
-make build            # build nativo → dist/printpilot-agent
-make build-386        # linux/386 (netbooks / hardware 32 bits)
-make build-arm        # linux/arm
-make build-arm64      # linux/arm64 (Raspberry Pi)
-make release          # los 4 binarios con la versión (git describe)
-make run ARGS="--config config.example.yaml"
-make test
+sudo curl -sfL https://github.com/Print-Pilot/printpilot-agent/releases/latest/download/install.sh \
+  | sudo bash -s -- install
 ```
 
-## Autenticación (Fase 4)
+El instalador:
 
-El agente envía su `token` en el `Handshake`. El hub lo valida contra la fuente
-de verdad (el panel). Si el token es inválido, el hub cierra la conexión con el
-código WebSocket `4001` y el agente lo interpreta: **no reintenta en loop
-rápido**, sino que espera 60s y vuelve a intentar (para que al corregir la
-config se recupere solo, sin saturar el hub).
+1. Chequea las dependencias del sistema (Klipper, Moonraker, Crowsnest, go2rtc…) y las muestra en un reporte con colores.
+2. Descarga el binario correcto para tu arquitectura (amd64 / 386 / arm / arm64) y verifica su checksum.
+3. Crea el usuario `printpilot` y genera la config.
+4. Registra el servicio de systemd `printpilot-agent` y lo arranca.
 
-## Instalación como servicio (Fase 4.3)
+### Interactivo (menú con flechas)
 
-Desde GitHub Releases (binarios compilados por CI):
+Corré el instalador **sin argumentos en una terminal** y vas a ver un menú navegable con **↑/↓ + Enter**:
 
 ```sh
-sudo curl -sfL https://github.com/Print-Pilot/printpilot-agent/releases/download/v0.1.0/install.sh \
-  | sudo bash -s -- v0.1.0
+sudo ./install.sh
 ```
 
-Instala el binario correcto según arquitectura en `/opt/printpilot-agent`, crea
-el usuario `printpilot`, y registra el service `printpilot-agent` de systemd
-con `Restart=always`. Completá `/etc/printpilot-agent/config.yaml` (hub_url,
-printer_id, token) y luego `sudo systemctl restart printpilot-agent`.
+### Configurar sin prompts
 
-Para probar localmente con el service del repo:
+Podés evitar las preguntas pasando variables de entorno:
 
 ```sh
+sudo PRINTPILOT_HUB_URL=wss://hub.example.com/ws \
+     PRINTPILOT_PRINTER_ID=mi-impresora \
+     PRINTPILOT_TOKEN=tu-token \
+     PRINTPILOT_MOONRAKER_URL=ws://localhost:7125/websocket \
+     bash -c "$(curl -sfL https://github.com/Print-Pilot/printpilot-agent/releases/latest/download/install.sh)" -- install
+```
+
+Variables: `PRINTPILOT_HUB_URL`, `PRINTPILOT_PRINTER_ID`, `PRINTPILOT_TOKEN`, `PRINTPILOT_MOONRAKER_URL`, `PRINTPILOT_GO2RTC_URL`, `PRINTPILOT_BASE_URL` (mirror/proxy de descarga).
+
+### A mano (binario + systemd)
+
+```sh
+# binario según arquitectura
+curl -fsSL -o /usr/local/bin/printpilot-agent \
+  https://github.com/Print-Pilot/printpilot-agent/releases/latest/download/printpilot-agent-linux-amd64
+chmod +x /usr/local/bin/printpilot-agent
+
+# config
+sudo mkdir -p /etc/printpilot-agent
+sudo cp config.example.yaml /etc/printpilot-agent/config.yaml
+# ... editá hub_url / printer_id / token ...
+
+# servicio
 sudo install -m 644 deploy/printpilot-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now printpilot-agent
 ```
 
-## Config
+---
 
-## Probar (Fase 1)
-
-Necesitás Moonraker corriendo en `ws://localhost:7125/websocket` (o ajustar `moonraker_url` en tu config).
+## Actualizar y desinstalar
 
 ```sh
-# Terminal 1: servidor WSS de eco (solo para probar, no es parte del binario final)
-make run-echo
+# actualizar a la última versión y reiniciar el servicio
+sudo curl -sfL https://github.com/Print-Pilot/printpilot-agent/releases/latest/download/install.sh \
+  | sudo bash -s -- update
 
-# Terminal 2: agente, con el hub apuntando al echo server
-make run ARGS="--config config.example.yaml"
+# desinstalar (la config se respalda en /etc/printpilot-agent/config.yaml.bak.*)
+sudo curl -sfL https://github.com/Print-Pilot/printpilot-agent/releases/latest/download/install.sh \
+  | sudo bash -s -- delete
+
+# solo revisar dependencias y estado
+sudo ./install.sh check
 ```
 
-Config de ejemplo para la prueba local:
+---
 
-```yaml
-hub_url: ws://localhost:8787/ws
-moonraker_url: ws://localhost:7125/websocket
-printer_id: mi-printer
-token: ""
-```
+## Configuración
 
-Con el `hub_url` apuntando al echo server, el agente envía el saludo `hola, soy mi-printer` y ves el eco de vuelta por consola. Al mismo tiempo, los status updates de Moonraker se loguean en crudo.
+El archivo de config vive en `/etc/printpilot-agent/config.yaml` (o donde indiques con `--config`).
 
-## Config
-
-Copiá `config.example.yaml` a `agent-config.yaml` y completá los valores. El archivo real está ignorado por git (ver `.gitignore`).
+| Campo | Descripción |
+|---|---|
+| `hub_url` | URL del hub de PrintPilot (`wss://…`). **Obligatorio.** |
+| `printer_id` | Identificador único de esta impresora en el ecosistema. **Obligatorio.** |
+| `token` | Token de autenticación del agente (lo genera/valida el panel). Vacío = solo desarrollo. |
+| `moonraker_url` | WebSocket de Moonraker (default `ws://localhost:7125/websocket`). |
+| `heartbeat_interval_seconds` | Frecuencia del heartbeat al hub (default 30). |
+| `log_file` | Archivo de log con rotación; vacío = solo consola. |
+| `log_level` | `debug` \| `info` \| `warn` \| `error` (default `info`). |
+| `spoolman_proxy_port` | Puerto del proxy Spoolman local (default 8001). |
+| `go2rtc_url` | URL de go2rtc para la cámara (vacío = deshabilitado). |
+| `camera_stream` | Stream de go2rtc a servir para la cámara "default". |
+| `webrtc_timeout_seconds` | Timeout de negociación WebRTC (default 15). |
 
 ```yaml
 hub_url: wss://hub.example.com/ws
@@ -108,62 +148,109 @@ token: ""
 moonraker_url: ws://localhost:7125/websocket
 printer_id: ""
 heartbeat_interval_seconds: 30
-log_file: "/tmp/printpilot-agent.log"   # opcional, "" = solo consola
-log_level: "info"                        # debug | info | warn | error
-spoolman_proxy_port: 8001               # proxy Spoolman local (0 = deshabilitado)
+log_file: "/var/log/printpilot-agent/agent.log"
+log_level: "info"
+spoolman_proxy_port: 8001
+go2rtc_url: ""
+camera_stream: ""
+webrtc_timeout_seconds: 15
 ```
 
-## Spoolman (reporte de filamento)
+---
 
-El agente expone un proxy local compatible con la API de Spoolman para que
-Moonraker le reporte el consumo de filamento. El agente **no guarda inventario**:
-solo recibe el reporte y lo reenvía al hub (que lo publica en Redis para que el
-panel actualice el peso restante del spool).
+## Autenticación
 
-Para activarlo:
+El agente envía su `token` en el `Handshake` al conectar. El hub lo valida contra la fuente de verdad (el panel de PrintPilot). Si el token es inválido, el hub cierra con el código WebSocket **4001** y el agente **no reintenta en loop rápido**: espera 60s y vuelve a intentar, para que se recupere solo al corregir la config sin saturar el hub.
 
-1. En `moonraker.conf`, apuntá la integración de Spoolman a este proxy local:
-   ```ini
-   [spoolman]
-   server: http://localhost:8001
-   ```
-   (ajustá el puerto si configuraste otro `spoolman_proxy_port`).
+---
 
-2. En `agent-config.yaml`:
-   ```yaml
-   spoolman_proxy_port: 8001
-   ```
+## Cámara en vivo (WebRTC P2P)
 
-3. Reiniciá Moonraker y el agente. El agente loguea `proxy spoolman escuchando`
-   y `Moonraker conectado al proxy spoolman (WS)` cuando Moonraker abre la
-   conexión websocket.
+Con `go2rtc` corriendo en la misma máquina, el agente actúa como **intermediario de señalización** entre el panel y go2rtc (endpoint **WHEP**). El video fluye **P2P directo entre tu navegador y la impresora** — ni el hub ni el panel lo tocan.
 
-Cada vez que Moonraker reporta uso (`PUT /api/v1/spool/{id}/use`), el agente
-convierte el `use_length` (mm) en un `FilamentUsageReport` y lo envía al hub.
-Si el tunnel está caído, los reportes se encolan en un buffer acotado (máx 1000)
-y se reintentan cada 3s.
+- `camera_stream` define qué stream de go2rtc se sirve para la cámara "default" (vacío = usa el nombre `default`).
+- Configurá en `go2rtc.yaml`: las credenciales **STUN/TURN** (sección `webrtc:`) y la fuente de la cámara (`on_demand: true` para que go2rtc solo capture mientras haya un viewer).
+- El cierre de sesión lo gestiona go2rtc solo (WHEP es fire-and-forget): al cerrarse la conexión del navegador, libera el peer.
 
-Contrato detallado de compatibilidad: [`SPOOLMAN_COMPAT.md`](SPOOLMAN_COMPAT.md).
+---
 
-## Reconexión
+## Filamento (Spoolman)
 
-El agente se reconecta solo con backoff exponencial + jitter (initial 500ms, factor 2, max 30s) tanto a Moonraker como al hub, por separado. Tras cada reconexión al hub se re-envía el `Handshake` automáticamente.
+El agente expone un **proxy local compatible con la API de Spoolman**. Moonraker reporta el consumo contra ese proxy y el agente lo reenvía al hub (que descuenta el peso del spool en el panel). El agente **no guarda inventario**: es un puente.
 
-## Estructura
+En `moonraker.conf`:
+
+```ini
+[spoolman]
+server: http://localhost:8001
+```
+
+Contrato detallado: [`SPOOLMAN_COMPAT.md`](SPOOLMAN_COMPAT.md).
+
+---
+
+## Confiabilidad
+
+- **Reconexión automática** a Moonraker y al hub, por separado, con backoff exponencial + jitter (500ms → 30s máx).
+- Tras cada reconexión al hub se reenvía el `Handshake` automáticamente.
+- Reportes de filamento pendientes (si el tunnel está caído) se encolan en un buffer acotado y se reintentan.
+
+---
+
+## Desarrollo
+
+**Requisitos**: Go 1.25+.
+
+```sh
+make build          # build nativo → dist/printpilot-agent
+make build-amd64    # linux/amd64
+make build-386      # linux/386 (netbooks / 32 bits)
+make build-arm      # linux/arm
+make build-arm64    # linux/arm64 (Raspberry Pi)
+make release        # los 4 binarios con la versión
+make checksums      # .sha256 por binario (los verifica el instalador)
+make test
+```
+
+### Estructura
 
 ```
 printpilot-agent/
 ├── main.go
 ├── cmd/
-│   ├── echoserver/      # servidor WSS de eco para pruebas (no parte del binario final)
-│   └── moonmock/        # Moonraker simulado para pruebas (no parte del binario final)
+│   ├── echoserver/      # servidor WSS de eco para pruebas locales
+│   └── moonmock/        # Moonraker simulado para pruebas
 ├── internal/
-│   ├── moonraker/      # cliente websocket de Moonraker
-│   ├── tunnel/         # cliente WSS hacia el hub + reconexión
-│   ├── bridge/         # lógica de reenvío entre ambos
-│   ├── config/         # carga de config local
-│   ├── backoff/        # backoff exponencial con jitter
-│   └── runner/         # loop de conexión/reconexión genérico
+│   ├── moonraker/       # cliente websocket de Moonraker
+│   ├── tunnel/          # cliente WSS hacia el hub + reconexión
+│   ├── bridge/          # reenvío entre Moonraker y el hub
+│   ├── webrtc/          # señalización de cámara (WHEP con go2rtc)
+│   ├── spoolmanproxy/   # proxy Spoolman (reporte de filamento)
+│   ├── config/          # carga de config local
+│   ├── backoff/         # backoff exponencial con jitter
+│   └── runner/          # loop de conexión/reconexión genérico
+├── deploy/
+│   ├── install.sh              # instalador (install/update/delete/check)
+│   └── printpilot-agent.service
 ├── config.example.yaml
 └── Makefile
 ```
+
+---
+
+## Ecosistema
+
+PrintPilot es un conjunto de repositorios que funcionan juntos:
+
+| Repo | Rol |
+|---|---|
+| [printpilot-agent](https://github.com/Print-Pilot/printpilot-agent) | **Este**: el puente en la máquina de la impresora |
+| [printpilot-hub](https://github.com/Print-Pilot/printpilot-hub) | Servidor central que gestiona las conexiones de los agentes |
+| [printpilot-panel](https://github.com/Print-Pilot/printpilot-panel) | Dashboard web (Laravel + Filament) |
+| [printpilot-protocol](https://github.com/Print-Pilot/printpilot-protocol) | Contrato de mensajes compartido entre los servicios |
+
+---
+
+## Estado del proyecto
+
+En desarrollo activo (uso personal). La arquitectura central está estable; se está puliendo la experiencia de instalación y el streaming de cámara para producción.

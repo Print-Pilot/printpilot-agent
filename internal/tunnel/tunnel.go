@@ -23,24 +23,34 @@ type FileMkdirRequestFn func(protocol.FileMkdirRequest)
 type FileMoveRequestFn func(protocol.FileMoveRequest)
 type SetActiveSpoolFn func(protocol.SetActiveSpool)
 
+// WebrtcOfferFn recibe cada offer de señalización WebRTC (cámara en vivo) del
+// hub. El handler NO debe bloquear: debe encolar y volver al toque, para no
+// frenar el read-loop del tunnel (telemetría/comandos).
+type WebrtcOfferFn func(protocol.WebrtcOffer)
+type WebrtcIceCandidateFn func(protocol.WebrtcIceCandidate)
+type WebrtcSessionEndFn func(protocol.WebrtcSessionEnd)
+
 type Client struct {
-	url          string
-	printerID    string
-	token        string
-	agentVer     string
-	log          *slog.Logger
-	conn         *websocket.Conn
-	ready        bool // solo se activa tras enviar el handshake
-	writeMu      sync.Mutex
-	onCommand    CommandFn
-	onFileList   FileListRequestFn
-	onFileGet    FileGetRequestFn
-	onFileUpload FileUploadRequestFn
-	onFileDelete FileDeleteRequestFn
-	onFileMkdir  FileMkdirRequestFn
-	onFileMove   FileMoveRequestFn
-	onSpoolSet   SetActiveSpoolFn
-	backoff      backoff.Config
+	url           string
+	printerID     string
+	token         string
+	agentVer      string
+	log           *slog.Logger
+	conn          *websocket.Conn
+	ready         bool // solo se activa tras enviar el handshake
+	writeMu       sync.Mutex
+	onCommand     CommandFn
+	onFileList    FileListRequestFn
+	onFileGet     FileGetRequestFn
+	onFileUpload  FileUploadRequestFn
+	onFileDelete  FileDeleteRequestFn
+	onFileMkdir   FileMkdirRequestFn
+	onFileMove    FileMoveRequestFn
+	onSpoolSet    SetActiveSpoolFn
+	onWebrtcOffer WebrtcOfferFn
+	onWebrtcIce   WebrtcIceCandidateFn
+	onWebrtcEnd   WebrtcSessionEndFn
+	backoff       backoff.Config
 }
 
 func New(url, printerID, token, agentVer string, log *slog.Logger) *Client {
@@ -112,6 +122,27 @@ func (c *Client) SetActiveSpoolCallback(fn func(protocol.SetActiveSpool)) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	c.onSpoolSet = fn
+}
+
+// SetWebrtcOfferCallback registra el handler para webrtc.offer del hub.
+func (c *Client) SetWebrtcOfferCallback(fn func(protocol.WebrtcOffer)) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.onWebrtcOffer = fn
+}
+
+// SetWebrtcIceCandidateCallback registra el handler para webrtc.ice_candidate.
+func (c *Client) SetWebrtcIceCandidateCallback(fn func(protocol.WebrtcIceCandidate)) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.onWebrtcIce = fn
+}
+
+// SetWebrtcSessionEndCallback registra el handler para webrtc.session_end.
+func (c *Client) SetWebrtcSessionEndCallback(fn func(protocol.WebrtcSessionEnd)) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	c.onWebrtcEnd = fn
 }
 
 func (c *Client) Connect(ctx context.Context) error {
@@ -291,6 +322,38 @@ func (c *Client) ReadLoop(ctx context.Context) error {
 			if c.onSpoolSet != nil {
 				c.onSpoolSet(req)
 			}
+
+		case protocol.TypeWebrtcOffer:
+			var msg protocol.WebrtcOffer
+			if err := env.UnmarshalPayload(&msg); err != nil {
+				c.log.Warn("webrtc.offer del hub inválido", "error", err)
+				continue
+			}
+			c.log.Info("webrtc.offer recibido del hub", "session_id", msg.SessionID)
+			if c.onWebrtcOffer != nil {
+				c.onWebrtcOffer(msg)
+			}
+		case protocol.TypeWebrtcIceCandidate:
+			var msg protocol.WebrtcIceCandidate
+			if err := env.UnmarshalPayload(&msg); err != nil {
+				c.log.Warn("webrtc.ice_candidate del hub inválido", "error", err)
+				continue
+			}
+			c.log.Debug("webrtc.ice_candidate recibido del hub", "session_id", msg.SessionID)
+			if c.onWebrtcIce != nil {
+				c.onWebrtcIce(msg)
+			}
+		case protocol.TypeWebrtcSessionEnd:
+			var msg protocol.WebrtcSessionEnd
+			if err := env.UnmarshalPayload(&msg); err != nil {
+				c.log.Warn("webrtc.session_end del hub inválido", "error", err)
+				continue
+			}
+			c.log.Info("webrtc.session_end recibido del hub", "session_id", msg.SessionID, "reason", msg.Reason)
+			if c.onWebrtcEnd != nil {
+				c.onWebrtcEnd(msg)
+			}
+
 		case protocol.TypeAck:
 			var ack protocol.Ack
 			if err := env.UnmarshalPayload(&ack); err != nil {

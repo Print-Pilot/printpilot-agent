@@ -21,6 +21,7 @@ import (
 	"github.com/Print-Pilot/printpilot-agent/internal/moonraker"
 	"github.com/Print-Pilot/printpilot-agent/internal/spoolmanproxy"
 	"github.com/Print-Pilot/printpilot-agent/internal/tunnel"
+	"github.com/Print-Pilot/printpilot-agent/internal/webrtc"
 	"github.com/Print-Pilot/printpilot-protocol"
 )
 
@@ -57,6 +58,21 @@ func main() {
 
 	br := bridge.New(cfg.PrinterID, moons, tun, log)
 	br.Start()
+
+	// WebRTC (cámara en vivo): el agente es un intermediario transparente de
+	// señalización entre el hub y go2rtc (WHEP). El video fluye P2P navegador
+	// <-> go2rtc. Los handlers encolan y vuelven al toque (no frenan el
+	// read-loop del tunnel); el manager los procesa en una goroutine FIFO.
+	var webrtcMgr *webrtc.Manager
+	if cfg.Go2rtcURL != "" {
+		client := webrtc.NewClient(cfg.Go2rtcURL)
+		webrtcMgr = webrtc.NewManager(log, cfg.PrinterID, cfg.WebrtcTimeout, cfg.CameraStream, client, tun.SendEnvelope)
+		tun.SetWebrtcOfferCallback(webrtcMgr.HandleOffer)
+		tun.SetWebrtcIceCandidateCallback(webrtcMgr.HandleIceCandidate)
+		tun.SetWebrtcSessionEndCallback(webrtcMgr.HandleSessionEnd)
+	} else {
+		log.Info("streaming de cámara deshabilitado (falta go2rtc_url)")
+	}
 
 	// Proxy Spoolman: expone la API compatible con Spoolman para que Moonraker
 	// le reporte consumo de filamento, y lo reenvía al hub por el tunnel.
@@ -118,6 +134,14 @@ func main() {
 					}
 				}
 			}
+		}()
+	}
+
+	if webrtcMgr != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			webrtcMgr.Run(ctx)
 		}()
 	}
 

@@ -19,6 +19,12 @@ type Config struct {
 	LogFile                  string        `yaml:"log_file"`
 	LogLevel                 string        `yaml:"log_level"`
 	SpoolmanProxyPort        int           `yaml:"spoolman_proxy_port"` // puerto del proxy Spoolman local; 0 = deshabilitado
+
+	// WebRTC (cámara en vivo). Go2rtcURL vacío deshabilita el streaming.
+	Go2rtcURL            string        `yaml:"go2rtc_url"`             // ej. http://localhost:1984
+	CameraStream         string        `yaml:"camera_stream"`          // stream de go2rtc a servir para camera_id "default"; vacío = usar el camera_id
+	WebrtcTimeoutSeconds int           `yaml:"webrtc_timeout_seconds"` // negociación máx; 0 = 15
+	WebrtcTimeout        time.Duration `yaml:"-"`
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -47,6 +53,11 @@ func LoadConfig(path string) (*Config, error) {
 	if cfg.SpoolmanProxyPort <= 0 {
 		cfg.SpoolmanProxyPort = 8001
 	}
+
+	if cfg.Go2rtcURL != "" && cfg.WebrtcTimeoutSeconds <= 0 {
+		cfg.WebrtcTimeoutSeconds = 15
+	}
+	cfg.WebrtcTimeout = time.Duration(cfg.WebrtcTimeoutSeconds) * time.Second
 
 	return cfg, nil
 }

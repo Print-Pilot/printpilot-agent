@@ -22,7 +22,7 @@ jobs:
         run: go test ./...
 
       - name: Build binaries
-        run: make release
+        run: make release checksums
         env:
           VERSION: ${{ github.ref_name }}
 
@@ -30,7 +30,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/printpilot-agent
+            dist/printpilot-agent-linux-amd64
+            dist/printpilot-agent-linux-amd64.sha256
             dist/printpilot-agent-linux-386
+            dist/printpilot-agent-linux-386.sha256
             dist/printpilot-agent-linux-arm
+            dist/printpilot-agent-linux-arm.sha256
             dist/printpilot-agent-linux-arm64
+            dist/printpilot-agent-linux-arm64.sha256
+            deploy/install.sh
