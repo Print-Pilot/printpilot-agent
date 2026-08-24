@@ -3,6 +3,7 @@ package webrtc
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/Print-Pilot/printpilot-protocol"
@@ -176,6 +177,12 @@ func (m *Manager) handleOffer(ctx context.Context, offer protocol.WebrtcOffer) {
 
 	answer, err := m.client.CreatePeer(ctx, src, offer.SDP)
 	if err != nil {
+		// Diagnóstico: volcar el SDP del offer para reproducir el fallo de
+		// parseo de go2rtc/pion fuera de la máquina.
+		if len(offer.SDP) > 0 {
+			_ = os.WriteFile("/tmp/printpilot-offer.sdp", []byte(offer.SDP), 0o600)
+			m.log.Warn("webrtc: offer volcado para diagnóstico", "path", "/tmp/printpilot-offer.sdp", "sdp_len", len(offer.SDP))
+		}
 		m.log.Warn("webrtc: no se pudo crear peer en go2rtc", "session_id", s.id, "camera", s.camera, "error", err)
 		m.sendSessionEnd(ctx, s.id, protocol.WebrtcSessionEndError)
 		delete(m.sess, s.id)
