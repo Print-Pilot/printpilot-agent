@@ -125,9 +125,24 @@ require_root() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Cache del listado de unidades systemd: se consulta systemctl UNA sola vez
+# (todas las dependencias lo reutilizan) y con timeout para no colgar el
+# instalador si systemd está lento o no responde. El flag _unit_files_loaded
+# evita re-consultar aunque el resultado sea vacío.
+_unit_files=""
+_unit_files_loaded=""
+
 unit_exists() { # unit_exists <nombre>  (acepta "klipper" o "klipper.service")
-  systemctl list-unit-files 2>/dev/null | awk '{print $1}' | grep -qx "$1" \
-    || systemctl list-unit-files 2>/dev/null | awk '{print $1}' | grep -qx "$1.service"
+  if [ -z "$_unit_files_loaded" ]; then
+    _unit_files_loaded=1
+    if command -v timeout >/dev/null 2>&1; then
+      _unit_files="$(timeout 5 systemctl list-unit-files 2>/dev/null || true)"
+    else
+      _unit_files="$(systemctl list-unit-files 2>/dev/null || true)"
+    fi
+  fi
+  printf '%s\n' "$_unit_files" | awk '{print $1}' | grep -qx "$1" \
+    || printf '%s\n' "$_unit_files" | awk '{print $1}' | grep -qx "$1.service"
 }
 
 # --- Detección de arquitectura ----------------------------------------------
@@ -145,69 +160,70 @@ detect_arch() {
 # Detecta qué tiene el sistema y reporta en una tabla. Required = Moonraker
 # (sin él el agente no hace nada), lo demás es informativo/opcional.
 run_dep_checks() {
-  # Klipper: servicio o carpetas de instalación típicas.
-  klipper="no"
-  if unit_exists klipper; then klipper="si"; else
+  # Feedback en vivo: cada dependencia imprime "Buscando X..." y el resultado
+  # se agrega en la misma línea al terminar (✓ verde / ✗ rojo requerido / · gris opcional).
+  check_start() { printf '  \033[90m·\033[0m Buscando \033[1m%-10s\033[0m...' "$1"; }
+  check_ok()    { printf ' \033[1;32m✓\033[0m %s\n' "$1"; }
+  check_skip()  { printf ' \033[90m·\033[0m %s\n' "$1"; }
+  check_miss()  { printf ' \033[1;31m✗\033[0m %s\n' "$1"; }
+
+  # --- Klipper (opcional, informativo) ---
+  check_start "Klipper"
+  klipper="no"; kdet="no encontrado"
+  if unit_exists klipper; then
+    klipper="si"; kdet="servicio"
+  else
     for p in /home/*/klipper/klippy /home/*/printer_data/config /home/*/printer_data; do
-      if [ -e "$p" ]; then klipper="si"; break; fi
+      if [ -e "$p" ]; then klipper="si"; kdet="en $p"; break; fi
     done
   fi
+  if [ "$klipper" = "si" ]; then check_ok "$kdet"; else check_skip "$kdet"; fi
 
-  # Moonraker: servicio o respuesta HTTP del API en :7125.
-  moonraker="no"
-  if unit_exists moonraker; then moonraker="si";
-  elif { have curl && curl --max-time 3 -fsS http://localhost:7125/server/info >/dev/null 2>&1; } \
+  # --- Moonraker (requerido) ---
+  check_start "Moonraker"
+  moonraker="no"; mdet="no encontrado"
+  if unit_exists moonraker; then
+    moonraker="si"; mdet="servicio"
+  elif { have curl && curl --connect-timeout 2 --max-time 3 -fsS http://localhost:7125/server/info >/dev/null 2>&1; } \
     || { have wget && wget -qO- --timeout=3 http://localhost:7125/server/info >/dev/null 2>&1; }; then
-    moonraker="si"
+    moonraker="si"; mdet="responde en localhost:7125"
   fi
+  if [ "$moonraker" = "si" ]; then check_ok "$mdet"; else check_miss "$mdet"; fi
 
-  # Crowsnest: cámara (opcional, para el streaming de video).
-  crowsnest="no"
-  if unit_exists crowsnest || have crowsnest; then crowsnest="si"; fi
+  # --- Crowsnest (opcional, cámara) ---
+  check_start "Crowsnest"
+  crowsnest="no"; cdet="no encontrado (opcional)"
+  if unit_exists crowsnest || have crowsnest; then crowsnest="si"; cdet="disponible"; fi
+  if [ "$crowsnest" = "si" ]; then check_ok "$cdet"; else check_skip "$cdet"; fi
 
-  # go2rtc: streaming de cámara (opcional).
-  go2rtc="no"
-  if have go2rtc || unit_exists go2rtc \
-    || { have curl && curl --max-time 3 -fsS http://localhost:1984/api/streams >/dev/null 2>&1; }; then
-    go2rtc="si"
+  # --- go2rtc (opcional, cámara) ---
+  check_start "go2rtc"
+  go2rtc="no"; gdet="no encontrado (opcional)"
+  if have go2rtc; then
+    go2rtc="si"; gdet="binario en PATH"
+  elif unit_exists go2rtc; then
+    go2rtc="si"; gdet="servicio"
+  elif { have curl && curl --connect-timeout 2 --max-time 3 -fsS http://localhost:1984/api/streams >/dev/null 2>&1; }; then
+    go2rtc="si"; gdet="responde en localhost:1984"
   fi
+  if [ "$go2rtc" = "si" ]; then check_ok "$gdet"; else check_skip "$gdet"; fi
 
-  # Go: opcional, solo si se quiere compilar desde fuente.
+  # --- Go (opcional, build desde fuente) ---
+  check_start "Go"
   go="no"; go_ver=""
   if have go; then go="si"; go_ver="$(go version 2>/dev/null | awk '{print $3}')"; fi
+  if [ "$go" = "si" ]; then check_ok "$go_ver"; else check_skip "no encontrado (solo build)"; fi
 
-  # Herramientas de descarga y systemd (requeridos por este script).
+  # --- Descarga (requerido) ---
+  check_start "Descarga"
   dl="no"
-  if have curl; then dl="curl";
-  elif have wget; then dl="wget"; fi
+  if have curl; then dl="curl"; elif have wget; then dl="wget"; fi
+  if [ "$dl" != "no" ]; then check_ok "$dl"; else check_miss "ni curl ni wget"; fi
 
-  # Reporte con colores: ✓ verde / ✗ rojo (requerido) / · gris (opcional).
-  dep_line() { # dep_line <si|no> <required|optional> <nombre> <para qué>
-    local s="$1" req="$2" name="$3" desc="$4"
-    local mark
-    if [ "$s" = "si" ]; then
-      mark='\033[1;32m✓\033[0m'
-    elif [ "$req" = "required" ]; then
-      mark='\033[1;31m✗\033[0m'
-    else
-      mark='\033[90m·\033[0m'
-    fi
-    printf '  %b \033[1m%-12s\033[0m %s\n' "$mark" "$name" "$desc"
-  }
+  # --- systemd (requerido para el servicio) ---
+  check_start "systemd"
+  if command -v systemctl >/dev/null 2>&1; then check_ok "disponible"; else check_miss "no detectado (requerido)"; fi
 
-  echo
-  printf '\033[1;34mDependencias del sistema\033[0m\n'
-  dep_line "$klipper"   optional "Klipper"   "Firmware (lo sirve Moonraker)"
-  dep_line "$moonraker" required "Moonraker" "API de la impresora"
-  dep_line "$crowsnest" optional "Crowsnest" "Cámara (streaming, opcional)"
-  dep_line "$go2rtc"    optional "go2rtc"    "Streaming cámara (opcional)"
-  if [ "$go" = "si" ]; then
-    dep_line "$go" optional "Go" "Compilar desde fuente ($go_ver)"
-  else
-    dep_line "$go" optional "Go" "Compilar desde fuente (opcional)"
-  fi
-  [ "$dl" != "no" ] && dep_line si required "Descarga" "Descargar el binario ($dl)"
-  dep_line si required "systemd" "Servicio"
   echo
 
   if [ "$moonraker" != "si" ]; then
@@ -223,11 +239,12 @@ run_dep_checks() {
 resolve_version() {
   local requested="${1:-latest}"
   if [ "$requested" = "latest" ]; then
+    log "Consultando la última versión de $REPO..."
     local api="https://api.github.com/repos/$REPO/releases/latest"
     if have curl; then
-      curl -fsSL "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+      curl -fsSL --max-time 10 "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
     else
-      wget -qO- "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
+      wget -qO- --timeout=10 "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
   else
     echo "$requested"
