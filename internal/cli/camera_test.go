@@ -78,7 +78,7 @@ port: 8554
 			if err := os.WriteFile(p, []byte(c.conf), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			got, err := crowsnestStream(p)
+			got, _, err := crowsnestStream(p)
 			if err != nil {
 				t.Fatalf("error: %v", err)
 			}
@@ -91,8 +91,25 @@ port: 8554
 	t.Run("sin camaras", func(t *testing.T) {
 		p := filepath.Join(t.TempDir(), "crowsnest.conf")
 		_ = os.WriteFile(p, []byte("# vacío\n"), 0o600)
-		if _, err := crowsnestStream(p); err == nil {
+		if _, _, err := crowsnestStream(p); err == nil {
 			t.Error("esperaba error sin sección [cam]")
 		}
 	})
+}
+
+func TestGo2rtcStreamUrl(t *testing.T) {
+	cases := []struct {
+		url       string
+		transcode bool
+		want      string
+	}{
+		{"http://127.0.0.1:8080/?action=stream", true, "ffmpeg:http://127.0.0.1:8080/?action=stream#video=h264"},
+		{"http://127.0.0.1:8080/?action=stream", false, "http://127.0.0.1:8080/?action=stream"},
+		{"rtsp://127.0.0.1:8554/webcam", false, "rtsp://127.0.0.1:8554/webcam"},
+	}
+	for _, c := range cases {
+		if got := go2rtcStreamUrl(c.url, c.transcode); got != c.want {
+			t.Errorf("go2rtcStreamUrl(%q, %v) = %q, want %q", c.url, c.transcode, got, c.want)
+		}
+	}
 }

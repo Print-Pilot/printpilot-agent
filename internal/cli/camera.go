@@ -90,10 +90,12 @@ func cameraSetup(configPath string, streamOverride string) int {
 
 	// 1) Resolver la URL del stream.
 	stream := streamOverride
+	transcode := false
 	if stream == "" {
 		if conf, ok := findCrowsnestConf(); ok {
-			if s, err := crowsnestStream(conf); err == nil {
+			if s, t, err := crowsnestStream(conf); err == nil {
 				stream = s
+				transcode = t
 				fmt.Printf("Cámara detectada en %s → stream: %s\n", conf, stream)
 			} else {
 				fmt.Printf("Aviso: no pude interpretar crowsnest.conf (%v)\n", err)
@@ -104,10 +106,19 @@ func cameraSetup(configPath string, streamOverride string) int {
 	}
 	if stream == "" {
 		stream = promptStream()
+		// Sin detección no sabemos el codec; asumir MJPG (transcode) es lo
+		// seguro para cámaras web de Klipper.
+		transcode = true
 	}
 	if stream == "" {
 		fmt.Fprintln(os.Stderr, "No se definió el stream. Usá: printpilot camera setup --stream=<url>")
 		return 1
+	}
+
+	// go2rtc v1.9.14 no auto-transcodeca MJPG: envolver con ffmpeg:.
+	source := go2rtcStreamUrl(stream, transcode)
+	if source != stream {
+		fmt.Printf("Transcode habilitado (MJPG → H264 vía ffmpeg): %s\n", source)
 	}
 
 	// 2) Instalar go2rtc.
@@ -125,7 +136,7 @@ func cameraSetup(configPath string, streamOverride string) int {
 	}
 
 	// 4) Config + servicio.
-	if err := writeGo2rtcConfig(stream); err != nil {
+	if err := writeGo2rtcConfig(source); err != nil {
 		fmt.Fprintf(os.Stderr, "No se pudo escribir %s: %v\n", go2rtcConfig, err)
 		return 1
 	}
@@ -161,12 +172,13 @@ func findCrowsnestConf() (string, bool) {
 	return "", false
 }
 
-// crowsnestStream parsea la primer cámara del crowsnest.conf y deriva la URL
-// según el backend (ustreamer / v4l2rtsp / camera-streamer).
-func crowsnestStream(confPath string) (string, error) {
+// crowsnestStream parsea la primer cámara del crowsnest.conf y deriva la URL.
+// El segundo retorno indica si el source necesita transcode (MJPG → WebRTC):
+// ustreamer emite JPEG, que WebRTC no lleva → go2rtc debe pasar por ffmpeg.
+func crowsnestStream(confPath string) (string, bool, error) {
 	data, err := os.ReadFile(confPath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	inCam := false
@@ -198,7 +210,7 @@ func crowsnestStream(confPath string) (string, error) {
 		}
 	}
 	if !inCam {
-		return "", fmt.Errorf("no hay ninguna sección [cam ...] en %s", confPath)
+		return "", false, fmt.Errorf("no hay ninguna sección [cam ...] en %s", confPath)
 	}
 
 	mode := strings.ToLower(fields["mode"])
@@ -216,23 +228,33 @@ func crowsnestStream(confPath string) (string, error) {
 		if name == "" || name == "1" {
 			name = "stream"
 		}
-		return "rtsp://127.0.0.1:" + port + "/" + name, nil
+		return "rtsp://127.0.0.1:" + port + "/" + name, false, nil
 	case strings.Contains(mode, "camera-streamer"):
 		if port == "" {
 			port = "8554"
 		}
-		return "rtsp://127.0.0.1:" + port + "/stream", nil
+		return "rtsp://127.0.0.1:" + port + "/stream", false, nil
 	case strings.Contains(mode, "ustreamer"):
 		if port == "" {
 			port = "8080"
 		}
-		return "http://127.0.0.1:" + port + "/?action=stream", nil
+		return "http://127.0.0.1:" + port + "/?action=stream", true, nil
 	default:
 		if port == "" {
 			port = "8080"
 		}
-		return "http://127.0.0.1:" + port + "/?action=stream", nil
+		return "http://127.0.0.1:" + port + "/?action=stream", true, nil
 	}
+}
+
+// go2rtcStreamUrl envuelve el source con ffmpeg si hace falta transcode
+// (MJPG → H264). go2rtc NO auto-transcodeca en v1.9.14: sin el prefijo
+// ffmpeg: devuelve "codecs not matched: video:JPEG => video:H264".
+func go2rtcStreamUrl(url string, transcode bool) string {
+	if transcode {
+		return "ffmpeg:" + url + "#video=h264"
+	}
+	return url
 }
 
 func promptStream() string {
