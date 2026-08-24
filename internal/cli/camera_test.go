@@ -22,6 +22,15 @@ port: 8080
 			want: "http://127.0.0.1:8080/?action=stream",
 		},
 		{
+			name: "comentario inline",
+			conf: `[cam 1]
+mode: ustreamer # backend de captura
+device: /dev/video0
+port: 8080 # HTTP/MJPG stream/snapshot port
+`,
+			want: "http://127.0.0.1:8080/?action=stream",
+		},
+		{
 			name: "v4l2rtsp con name",
 			conf: `[cam 1]
 mode: v4l2rtsp

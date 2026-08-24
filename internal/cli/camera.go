@@ -181,7 +181,12 @@ func crowsnestStream(confPath string) (string, error) {
 			continue
 		}
 		if i := strings.Index(line, ":"); i > 0 {
-			fields[strings.TrimSpace(line[:i])] = strings.TrimSpace(line[i+1:])
+			val := strings.TrimSpace(line[i+1:])
+			// crowsnest permite comentarios al final de la línea.
+			if j := strings.Index(val, "#"); j >= 0 {
+				val = strings.TrimSpace(val[:j])
+			}
+			fields[strings.TrimSpace(line[:i])] = val
 		}
 	}
 	if !inCam {
@@ -235,8 +240,7 @@ func installGo2rtc() error {
 		return nil
 	}
 
-	arch := runtime.GOARCH
-	url := "https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_linux_" + arch
+	url := "https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_linux_" + go2rtcArch()
 	fmt.Printf("Descargando go2rtc (%s)...\n", url)
 	tmp := go2rtcBin + ".tmp"
 	if err := downloadFile(url, tmp); err != nil {
@@ -252,6 +256,16 @@ func installGo2rtc() error {
 	}
 
 	return nil
+}
+
+// go2rtcArch mapea GOARCH al nombre del asset de go2rtc (386 → i386).
+func go2rtcArch() string {
+	switch runtime.GOARCH {
+	case "386":
+		return "i386"
+	default:
+		return runtime.GOARCH
+	}
 }
 
 func writeGo2rtcConfig(stream string) error {
