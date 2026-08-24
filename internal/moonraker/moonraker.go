@@ -267,14 +267,21 @@ func (c *Client) applyPartial(partial map[string]json.RawMessage) {
 
 	// print_stats
 	if psRaw, ok := partial["print_stats"]; ok {
+		// OJO: Moonraker manda print_stats PARCIAL (solo los campos que
+		// cambiaron). state no siempre viene: pisarlo con "" acá borraba el
+		// estado acumulado y el bridge re-disparaba print_started en cada poll.
 		var ps struct {
-			State         string  `json:"state"`
-			Filename      string  `json:"filename"`
+			State         *string `json:"state"`
+			Filename      *string `json:"filename"`
 			PrintDuration float64 `json:"print_duration"`
 		}
 		if err := json.Unmarshal(psRaw, &ps); err == nil {
-			c.status.State = ps.State
-			c.status.Filename = ps.Filename
+			if ps.State != nil {
+				c.status.State = *ps.State
+			}
+			if ps.Filename != nil {
+				c.status.Filename = *ps.Filename
+			}
 			c.status.PrintDuration = ps.PrintDuration
 		}
 	}
