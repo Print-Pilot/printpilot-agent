@@ -117,3 +117,30 @@ func TestHubState(t *testing.T) {
 		t.Errorf("state = %q, want auth-rejected", got)
 	}
 }
+
+func TestLastConnError(t *testing.T) {
+	logFile := t.TempDir() + "/agent.log"
+	lines := []string{
+		`time=2026-08-24T10:00:00-03:00 level=WARN msg="enviar status update" error="tunnel: no hay conexión activa al hub"`,
+		`time=2026-08-24T10:00:01-03:00 level=WARN msg="no se pudo conectar" target=hub error="tunnel: no se pudo conectar al hub ws://h: dial tcp: connection refused"`,
+	}
+	data := ""
+	for _, l := range lines {
+		data += l + "\n"
+	}
+	if err := os.WriteFile(logFile, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := lastConnError(logFile)
+	want := "tunnel: no se pudo conectar al hub ws://h: dial tcp: connection refused"
+	if got != want {
+		t.Errorf("lastConnError = %q, want %q", got, want)
+	}
+
+	// Con el attr error ausente, cae al msg de la línea.
+	_ = os.WriteFile(logFile, []byte(`time=... level=WARN msg="conexión perdida" target=hub`+"\n"), 0o600)
+	if got := lastConnError(logFile); got != "conexión perdida" {
+		t.Errorf("lastConnError sin attr = %q", got)
+	}
+}

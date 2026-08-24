@@ -88,6 +88,12 @@ func cmdStatus(configPath string) int {
 		fmt.Println("  Hub:             sin actividad registrada")
 	}
 
+	if hub.state == "reconnecting" || hub.state == "auth-rejected" {
+		if errMsg := lastConnError(cfg.LogFile); errMsg != "" {
+			fmt.Printf("  Último error de conexión: %s\n", errMsg)
+		}
+	}
+
 	if last := lastHubTraffic(cfg.LogFile); !last.IsZero() {
 		fmt.Printf("  Última actividad del hub: hace %s\n", humanDuration(time.Since(last)))
 	}
@@ -242,6 +248,34 @@ func lastHubTraffic(logPath string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// lastConnError busca desde el final del log el último error de conexión al
+// hub y devuelve el mensaje del atributo error=... (o el msg si no trae attr).
+func lastConnError(logPath string) string {
+	if logPath == "" || !fileExists(logPath) {
+		return ""
+	}
+
+	markers := []string{"no se pudo conectar", "conexión perdida", "autenticación rechazada"}
+	lines := readTail(logPath, 512)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		for _, m := range markers {
+			if !strings.Contains(line, m) {
+				continue
+			}
+			if e := slogAttr(line, "error"); e != "" {
+				return e
+			}
+			_, _, msg := parseSlogLine(line)
+			return msg
+		}
+	}
+	return ""
 }
 
 // readTail devuelve las últimas hasta maxKB de líneas del archivo.
