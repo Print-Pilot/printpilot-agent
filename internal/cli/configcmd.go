@@ -29,6 +29,10 @@ var configKeys = map[string]string{
 //	printpilot config get [clave]     (sin clave: muestra todo, token enmascarado)
 //	printpilot config set <clave> <valor>
 func cmdConfig(configPath string, args []string) int {
+	if !requireRoot() {
+		return 1
+	}
+
 	if len(args) == 0 {
 		configUsage()
 		return 2

@@ -13,6 +13,10 @@ import (
 // cmdLog muestra el log del agente: `printpilot log [n]` (últimas n líneas,
 // default 30) o `printpilot log -f` (sigue en vivo, como tail -f).
 func cmdLog(configPath string, args []string) int {
+	if !requireRoot() {
+		return 1
+	}
+
 	n := 30
 	follow := false
 

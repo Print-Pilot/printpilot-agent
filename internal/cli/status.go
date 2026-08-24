@@ -14,6 +14,12 @@ import (
 // cmdStatus muestra el estado del servicio, la config y la conectividad
 // (Moonraker en vivo + estado de la conexión al hub derivado del log).
 func cmdStatus(configPath string) int {
+	// La config y el log son de lectura restringida (0600 de `printpilot`):
+	// re-ejecutar con sudo para poder leerlos sin error de permisos.
+	if !requireRoot() {
+		return 1
+	}
+
 	fmt.Println()
 	fmt.Println("Estado de printpilot-agent")
 	fmt.Println()

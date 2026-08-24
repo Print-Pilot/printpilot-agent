@@ -14,6 +14,10 @@ import (
 //	printpilot printer show          muestra el printer_id actual
 //	printpilot printer set <id>      fija un printer_id explícito
 func cmdPrinter(configPath string, args []string) int {
+	if !requireRoot() {
+		return 1
+	}
+
 	if len(args) == 0 {
 		printerUsage()
 		return 2
