@@ -252,23 +252,44 @@ run_dep_checks() {
 # --- Resolución de versión ---------------------------------------------------
 resolve_version() {
   local requested="${1:-latest}"
-  if [ "$requested" = "latest" ]; then
-    log "Consultando la última versión de $REPO..."
-    local api="https://api.github.com/repos/$REPO/releases/latest"
-    if have curl; then
-      curl -fsSL --max-time 10 "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
-    else
-      wget -qO- --timeout=10 "$api" 2>/dev/null | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/'
-    fi
-  else
+  if [ "$requested" != "latest" ]; then
     echo "$requested"
+    return 0
   fi
+  log "Consultando la última versión de $REPO..." >&2
+  local api="https://api.github.com/repos/$REPO/releases/latest"
+  local body=""
+  if have curl; then
+    body="$(curl -fsSL --max-time 10 "$api" 2>/dev/null || true)"
+  else
+    body="$(wget -qO- --timeout=10 "$api" 2>/dev/null || true)"
+  fi
+
+  local ver=""
+  ver="$(printf '%s\n' "$body" | grep -m1 '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' || true)"
+  if [ -z "$ver" ]; then
+    # Sin la API no sabemos el número de versión exacto. No abortamos: bajamos
+    # desde la ruta "latest" de GitHub (que no usa la API) y avisamos.
+    # OJO: log/warn van a stderr para no contaminar el stdout (la versión).
+    warn "No se pudo consultar la última versión en api.github.com (red o rate-limit)." >&2
+    warn "Se descargará desde la ruta 'releases/latest' sin verificar el número de versión." >&2
+    echo "latest"
+    return 0
+  fi
+  echo "$ver"
 }
 
 # --- Descarga del binario ----------------------------------------------------
 download_binary() { # download_binary <version> <arch> <dest>
   local version="$1" arch="$2" dest="$3"
-  local url="$DOWNLOAD_BASE/$version/printpilot-agent-linux-$arch"
+  local url
+  if [ "$version" = "latest" ]; then
+    # Sin número de versión (fallback cuando la API no responde): el alias
+    # "latest" de GitHub no depende de la API.
+    url="https://github.com/$REPO/releases/latest/download/printpilot-agent-linux-$arch"
+  else
+    url="$DOWNLOAD_BASE/$version/printpilot-agent-linux-$arch"
+  fi
   log "Descargando $url"
   if have curl; then
     curl -fsSL "$url" -o "$dest" || return 1
